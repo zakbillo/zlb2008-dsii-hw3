@@ -1,0 +1,201 @@
+---
+title: "HW3"
+author: "Zakari L. Billo"
+date: "2026-04-02"
+output: pdf_document
+---
+Load Packages 
+
+```{r, echo = T, message = FALSE, results='hide', warning=FALSE}
+library(caret)
+library(tidymodels)
+library(discrim) 
+library(MASS)
+library(mlbench)
+library(pROC)
+library(klaR)
+library(plotmo)
+library(splines)
+library(mgcv)
+library(pdp)
+library(earth)
+library(tidyverse)
+library(ggplot2)
+
+knitr::opts_chunk$set(
+  fig.width = 8,
+  fig.height = 7,
+  fig.align = "center",
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+Split the dataset into two parts: training data (70%) and test data (30%).
+
+```{r}
+dat <- read.csv("data/auto.csv",  na = c("NA", ".", "")) |>
+  janitor::clean_names() |> na.omit() |>
+  mutate(
+    mpg_cat = as.factor(mpg_cat),
+    origin = factor(origin, 
+                    levels = c(1, 2, 3), 
+                    labels = c("American", "European", "Japanese")),
+  )
+
+dat <- dat[dat$cylinders != 3, ]
+
+summary(dat)
+
+set.seed(1)
+data_split <- initial_split(dat, prop = 0.7)
+
+# Extract the training and test data
+training_data <- training(data_split)
+testing_data <- testing(data_split)
+
+# set up cross validation control
+ctrl <- trainControl(method = "cv", 10,
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+```
+
+(a) Perform logistic regression analysis. Are there redundant predictors in your model? If so, identify them. If there are none, please provide an explanation.
+
+```{r}
+set.seed(1)
+
+lr.fit <- train(
+                mpg_cat ~ ., 
+                data=training_data, 
+                method="glm", 
+                family="binomial",
+                metric = "ROC",
+                preProcess=c("center", "scale"), 
+                trControl=ctrl)
+
+summary(lr.fit)
+print(lr.fit)
+```
+
+There appear to be redundant predictors that fail to be statistically significant at $\alpha = 0.05$: `origin`, `acceleration`, `displacement`, `cylinders`, and `horsepower` (borderline case). The non-redundant predictors are `weight` and `year` of the car model. An explanation for this is that the many of the variables related to engine performance add dimensionality but possibly explain non-unique properties of the car, like `acceleration` being rooted in the displacement caused by `horsepower` and the `cylinders`. 
+
+The 
+
+(b) Train a multivariate adaptive regression spline (MARS) model. Does the MARS
+model improve prediction performance compared to logistic regression?
+
+```{r, warning = FALSE}
+set.seed(1)
+mars_grid <- expand.grid(degree = 1:3, nprune = 2:25)
+
+mars.fit <- train(mpg_cat ~ ., 
+                   data = training_data,
+                    method = "earth",
+                    tuneGrid = mars_grid,
+                    metric = "ROC",
+                    trControl = ctrl)
+
+plot(mars.fit)
+mars.fit$bestTune
+coef(mars.fit$finalModel)
+print(mars.fit$finalModel)
+summary(mars.fit$finalModel)
+```
+
+The final mars model selected was $$\text{logit}(p) = 8.8028 - 2.0454 \cdot h(6 - \text{cylinders}) + 1.1538 \cdot h(\text{displacement} - 119) - 1.3189 \cdot h(\text{displacement} - 122) + 0.1743 \cdot h(\text{displacement} - 156) - 0.0191 \cdot h(\text{displacement} - 232) - 0.0054 \cdot h(3525 - \text{weight}) - 0.5812 \cdot h(\text{year} - 72)$$
+
+```{r}
+set.seed(1)
+res <- resamples(list(Logistic = lr.fit,
+                      MARS = mars.fit))
+
+summary(res)
+bwplot(res, metric = "ROC", main = "CV ROC: Logistic vs. MARS")
+```
+
+Overall, it appears that the MARS model had a higher cross-validated ROC (0.984 vs. 0.974), Sensitivity (0.964 vs. 0.921) and Specificity (0.916 vs 0.901). Thus, the final cross-validated MARS model is an improvement over the logistic regression model.
+
+(c) Perform linear discriminant analysis using the training data. Plot the linear discriminant(s).
+
+```{r, warning = FALSE}
+# train LDA model with CV
+# set up cross validation control
+ctrl1 <- trainControl(method = "repeatedcv", repeats = 10,
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+
+set.seed(1)
+lda.fit <- train(mpg_cat ~ ., 
+                   data = training_data,
+                   method = "lda",
+                   metric = "ROC",
+                   trControl = ctrl)
+
+lda.fit$finalModel
+
+# Fit a standalone LDA model just for the plot
+lda.plot <- lda(mpg_cat ~ ., data = training_data)
+plot(lda.plot)
+```
+
+The final LDA model was $$\text{LD1} = 0.5163 \cdot \text{cylinders} - 0.0015 \cdot \text{displacement} - 0.0069 \cdot \text{horsepower} + 0.0012 \cdot \text{weight} + 0.0213 \cdot \text{acceleration} - 0.1191 \cdot \text{year} - 0.1545 \cdot I(\text{origin} = \text{European}) - 0.4373 \cdot I(\text{origin} = \text{Japanese})$$
+
+(d) Which model will you choose to predict the response variable? Plot its ROC curve
+and report the AUC.
+
+```{r}
+set.seed(1)
+res <- resamples(list(Logistic = lr.fit,
+                      MARS = mars.fit,
+                      LDA = lda.fit))
+
+summary(res)
+bwplot(res, metric = "ROC", main = "CV ROC: Logistic vs. MARS vs. LDA")
+```
+
+Based on 10-fold cross-validation, MARS is still the winning model.
+
+```{r}
+set.seed(1)
+mars.probs <- predict(mars.fit,
+                      newdata = testing_data,
+                      type = "prob")[,2]
+
+roc.mars <- roc(testing_data$mpg_cat, mars.probs)
+
+auc(roc.mars)
+plot(roc.mars, legacy.axes = TRUE,
+     main = "ROC Curve: MARS Model")
+```
+
+The AUC for MARS is 0.9816.
+
+(e) Select a probability threshold to classify observations and compute the confusion matrix for the final model you choose. Briefly interpret what the confusion matrix indicates about your model’s performance. (Note: We are looking for concise inter-pretations based on your own understanding. Do not use AI tools to answer this question.)
+
+```{r}
+test.probs <- predict(mars.fit, newdata = testing_data, type = "prob")
+test.pred.prob <- test.probs[, "high"]
+
+test.pred <- rep("low", length(test.pred.prob))
+test.pred[test.pred.prob > 0.5] <- "high"
+
+# confusion matrix
+confusionMatrix(data = as.factor(test.pred), 
+                reference = testing_data$mpg_cat, 
+                positive = "high")
+```
+
+I decided on a decision rule of 0.5 to classify between "High" and "Low" efficiency cars. This is equivalent to assuming that there are equal consequences associated with assigning False Positives (missclassification of a "Low"-efficiency car as "High") and False Negatives (missclassification of a "High"-efficiency car as "Low").
+
+With an overall accuracy of 0.897, MARS will correctly classify the "High"
+ efficiency vehicles 85.7% of the time (Sensitivity) and correctly classifies the "Low" efficiency vehicles 93.4% of the time.
