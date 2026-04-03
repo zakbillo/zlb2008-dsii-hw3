@@ -104,6 +104,7 @@ lasso.fit <- train(
                   mpg_cat ~ .,
                   training_data,
                   method = "glmnet",
+                  preProcess = c("center", "scale"),
                   tuneGrid = expand.grid(alpha = 1,
                                          lambda = exp(seq(10, -5, length = 100))),
                   trControl = ctrl) 
@@ -114,6 +115,12 @@ print(lasso_coefs)
 ```
 
 The redundant predictors (shrunk to 0 by the L1 norm of LASSO) appear to be `acceleration` and `displacement`. An explanation for this is these measures of engine performance add dimensionality but do not each describe unique properties of the car. For example, `acceleration` is the derivative of velocity (the variable `displacement` over time, in a direction), but both do not inform the mileage that a car may have.  
+
+The final penalized logistic regression model for LASSO was $$\begin{aligned}
+\text{logit}(p) &= 0.6764 + 0.3225 \cdot \text{cylinders}^* + 0.8634 \cdot \text{horsepower}^* \\
+&\quad + 3.0323 \cdot \text{weight}^* - 1.1614 \cdot \text{year}^* \\
+&\quad - 0.0089 \cdot I(\text{origin} = \text{European}) - 0.1596 \cdot I(\text{origin} = \text{Japanese})
+\end{aligned}$$
 
 (b) Train a multivariate adaptive regression spline (MARS) model. Does the MARS
 model improve prediction performance compared to logistic regression?
@@ -146,13 +153,14 @@ The final mars model selected was $$\begin{aligned}
 ```{r}
 set.seed(1)
 res <- resamples(list(Logistic = lr.fit,
+                      Lasso = lasso.fit,
                       MARS = mars.fit))
 
 summary(res)
-bwplot(res, metric = "ROC", main = "CV ROC: Logistic vs. MARS")
+bwplot(res, metric = "ROC", main = "CV ROC: Logistic Regression vs. LASSO vs. MARS")
 ```
 
-Overall, it appears that the MARS model had a higher cross-validated ROC (0.984 vs. 0.974), Sensitivity (0.964 vs. 0.921) and Specificity (0.916 vs 0.901). Thus, the final cross-validated MARS model is an improvement over the logistic regression model.
+Overall, it appears that the MARS model had a higher cross-validated ROC (0.984 vs. LASSO's 0.977 and LR's 0.974), Sensitivity (0.964 vs. LASSO's 0.936 and LR's 0.921) and Specificity (0.916 vs LASSO's 0.886 and LR's 0.901). Thus, the final cross-validated MARS model is an improvement over both the LASSO and Logistic regression model.
 
 (c) Perform linear discriminant analysis using the training data. Plot the linear discriminant(s).
 
@@ -189,11 +197,12 @@ and report the AUC.
 ```{r}
 set.seed(1)
 res <- resamples(list(Logistic = lr.fit,
+                      LASSO = lasso.fit,
                       MARS = mars.fit,
                       LDA = lda.fit))
 
 summary(res)
-bwplot(res, metric = "ROC", main = "CV ROC: Logistic vs. MARS vs. LDA")
+bwplot(res, metric = "ROC", main = "CV ROC: Logistic vs. LASSO vs. MARS vs. LDA")
 ```
 
 Based on 10-fold cross-validation, MARS is still the winning model.
