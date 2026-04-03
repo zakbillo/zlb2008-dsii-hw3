@@ -237,7 +237,7 @@ confusionMatrix(data = as.factor(test.pred),
                 positive = "high")
 ```
 
-I decided on a decision rule of 0.5 to classify between "High" and "Low" efficiency cars. This is equivalent to assuming that there are equal consequences associated with assigning False Positives (missclassification of a "Low"-efficiency car as "High") and False Negatives (missclassification of a "High"-efficiency car as "Low").
+I decided on a decision rule of 0.5 to classify between "High" and "Low" efficiency cars. This is equivalent to assuming that there are equal consequences associated with assigning False Positives (misclassification of a "Low"-efficiency car as "High") and False Negatives (misclassification of a "High"-efficiency car as "Low").
 
 With an overall accuracy of 0.897, MARS will correctly classify the "High"
  efficiency vehicles 85.7% of the time (Sensitivity) and correctly classifies the "Low" efficiency vehicles 93.4% of the time.
